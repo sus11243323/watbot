@@ -1,20 +1,17 @@
+
 {
-  "name": "wataszit",
+  "name": "wataszit-discord-bot",
   "version": "1.0.0",
-  "private": true,
-  "main": "server.js",
+  "description": "Wataszit Discord Server Monitor",
+  "main": "beta-bot.js",
   "scripts": {
-    "start": "beta-bot.js",
-  
+    "start": "node beta-bot.js"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=18.0.0"
   },
   "dependencies": {
-    "dotenv": "^16.4.7",
-    "express": "^4.21.2",
-    "express-rate-limit": "^7.5.0",
-    "helmet": "^8.0.0",
-    "discord.js": "^14.19.3"
+    "discord.js": "^14.0.0",
+    "dotenv": "^16.0.0"
   }
 }
