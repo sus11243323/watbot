@@ -4,8 +4,8 @@
   "private": true,
   "main": "server.js",
   "scripts": {
-    "start": "node server.js",
-    "beta-bot": "node beta-bot.js"
+    "start": "beta-bot.js",
+  
   },
   "engines": {
     "node": ">=20"
