@@ -3,6 +3,8 @@
 
 require('dotenv').config();
 
+const http = require('http');
+
 const {
   Client,
   GatewayIntentBits,
@@ -11,15 +13,41 @@ const {
   ChannelType
 } = require('discord.js');
 
+// ENV
 const apiBase = (process.env.WATASZIT_API_URL || '').replace(/\/$/, '');
 const secret = process.env.BETA_REVIEW_SECRET || '';
+const token = process.env.DISCORD_BOT_TOKEN || '';
+const PORT = Number(process.env.PORT) || 10000;
 
+// HTTP SERVER FOR RENDER WEB SERVICE
+const server = http.createServer((req, res) => {
+  if (req.url === '/health' || req.url === '/') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({
+      status: 'online',
+      service: 'Wataszit Discord Monitor'
+    }));
+    return;
+  }
+
+  res.writeHead(404, { 'Content-Type': 'application/json' });
+  res.end(JSON.stringify({ error: 'Not found' }));
+});
+
+server.listen(PORT, '0.0.0.0', () => {
+  console.log(`[Wataszit] HTTP server running on port ${PORT}`);
+});
+
+// DISCORD CLIENT
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMembers
   ]
 });
+
+// HELPERS
+const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 
 async function sendServerEvent(event) {
   try {
@@ -32,7 +60,8 @@ async function sendServerEvent(event) {
       body: JSON.stringify({
         ...event,
         timestamp: new Date().toISOString()
-      })
+      }),
+      signal: AbortSignal.timeout(10000)
     });
 
     const data = await response.json().catch(() => ({}));
@@ -47,7 +76,6 @@ async function sendServerEvent(event) {
   }
 }
 
-// Finds the person responsible for a channel or role change.
 async function getExecutor(guild, type, targetId) {
   try {
     const logs = await guild.fetchAuditLogs({
@@ -62,24 +90,22 @@ async function getExecutor(guild, type, targetId) {
 
     return entry?.executor?.tag || 'Unknown user';
   } catch (error) {
-    console.error('[Wataszit] Could not read audit logs:', error.message);
+    console.error('[Wataszit] Audit log error:', error.message);
     return 'Unknown user';
   }
 }
 
 function channelTypeName(channel) {
-  if (channel.type === ChannelType.GuildCategory) {
-    return 'category';
-  }
-
-  return 'channel';
+  return channel.type === ChannelType.GuildCategory
+    ? 'category'
+    : 'channel';
 }
 
 // CHANNEL CREATED
 client.on(Events.ChannelCreate, async channel => {
   if (!channel.guild) return;
 
-  await new Promise(resolve => setTimeout(resolve, 1000));
+  await delay(1200);
 
   const executor = await getExecutor(
     channel.guild,
@@ -104,7 +130,7 @@ client.on(Events.ChannelCreate, async channel => {
 client.on(Events.ChannelDelete, async channel => {
   if (!channel.guild) return;
 
-  await new Promise(resolve => setTimeout(resolve, 1000));
+  await delay(1200);
 
   const executor = await getExecutor(
     channel.guild,
@@ -125,34 +151,32 @@ client.on(Events.ChannelDelete, async channel => {
   });
 });
 
-// CHANNEL UPDATED / RENAMED
+// CHANNEL UPDATED
 client.on(Events.ChannelUpdate, async (oldChannel, newChannel) => {
-  if (!newChannel.guild) return;
+  if (!newChannel.guild || oldChannel.name === newChannel.name) return;
 
-  if (oldChannel.name !== newChannel.name) {
-    await new Promise(resolve => setTimeout(resolve, 1000));
+  await delay(1200);
 
-    const executor = await getExecutor(
-      newChannel.guild,
-      AuditLogEvent.ChannelUpdate,
-      newChannel.id
-    );
+  const executor = await getExecutor(
+    newChannel.guild,
+    AuditLogEvent.ChannelUpdate,
+    newChannel.id
+  );
 
-    await sendServerEvent({
-      action: 'channel_updated',
-      username: executor,
-      target: newChannel.name,
-      targetId: newChannel.id,
-      details: `${executor} renamed ${oldChannel.name} to ${newChannel.name}`,
-      guildId: newChannel.guild.id,
-      guildName: newChannel.guild.name
-    });
-  }
+  await sendServerEvent({
+    action: 'channel_updated',
+    username: executor,
+    target: newChannel.name,
+    targetId: newChannel.id,
+    details: `${executor} renamed ${oldChannel.name} to ${newChannel.name}`,
+    guildId: newChannel.guild.id,
+    guildName: newChannel.guild.name
+  });
 });
 
 // ROLE CREATED
 client.on(Events.GuildRoleCreate, async role => {
-  await new Promise(resolve => setTimeout(resolve, 1000));
+  await delay(1200);
 
   const executor = await getExecutor(
     role.guild,
@@ -173,7 +197,7 @@ client.on(Events.GuildRoleCreate, async role => {
 
 // ROLE DELETED
 client.on(Events.GuildRoleDelete, async role => {
-  await new Promise(resolve => setTimeout(resolve, 1000));
+  await delay(1200);
 
   const executor = await getExecutor(
     role.guild,
@@ -196,25 +220,21 @@ client.on(Events.GuildRoleDelete, async role => {
 client.on(Events.GuildRoleUpdate, async (oldRole, newRole) => {
   const changes = [];
 
-  if (oldRole.name !== newRole.name) {
+  if (oldRole.name !== newRole.name)
     changes.push(`renamed role ${oldRole.name} to ${newRole.name}`);
-  }
 
-  if (oldRole.color !== newRole.color) {
+  if (oldRole.color !== newRole.color)
     changes.push(`changed color of role ${newRole.name}`);
-  }
 
-  if (oldRole.hoist !== newRole.hoist) {
+  if (oldRole.hoist !== newRole.hoist)
     changes.push(`changed display settings of role ${newRole.name}`);
-  }
 
-  if (oldRole.mentionable !== newRole.mentionable) {
+  if (oldRole.mentionable !== newRole.mentionable)
     changes.push(`changed mention settings of role ${newRole.name}`);
-  }
 
-  if (changes.length === 0) return;
+  if (!changes.length) return;
 
-  await new Promise(resolve => setTimeout(resolve, 1000));
+  await delay(1200);
 
   const executor = await getExecutor(
     newRole.guild,
@@ -233,7 +253,7 @@ client.on(Events.GuildRoleUpdate, async (oldRole, newRole) => {
   });
 });
 
-// MEMBER USERNAME / NICKNAME UPDATED
+// MEMBER UPDATED
 client.on(Events.GuildMemberUpdate, async (oldMember, newMember) => {
   const changes = [];
 
@@ -249,7 +269,7 @@ client.on(Events.GuildMemberUpdate, async (oldMember, newMember) => {
     );
   }
 
-  if (changes.length === 0) return;
+  if (!changes.length) return;
 
   await sendServerEvent({
     action: 'member_updated',
@@ -288,19 +308,26 @@ client.on(Events.GuildMemberRemove, async member => {
   });
 });
 
+// READY
 client.once(Events.ClientReady, () => {
-  console.log(`[Wataszit] Server monitor online as ${client.user.tag}`);
+  console.log(`[Wataszit] Discord monitor online as ${client.user.tag}`);
 });
 
-if (!process.env.DISCORD_BOT_TOKEN || !channelIdMissing() || !secret || !apiBase) {
+// ERROR HANDLING
+client.on(Events.Error, error => {
+  console.error('[Wataszit] Discord client error:', error);
+});
+
+// ENV VALIDATION
+if (!token || !secret || !apiBase) {
   console.error(
-    'Missing DISCORD_BOT_TOKEN, BETA_REVIEW_SECRET or WATASZIT_API_URL in Environment Variables.'
+    'Missing DISCORD_BOT_TOKEN, BETA_REVIEW_SECRET or WATASZIT_API_URL'
   );
   process.exit(1);
 }
 
-function channelIdMissing() {
-  return false;
-}
-
-client.login(process.env.DISCORD_BOT_TOKEN);
+// LOGIN
+client.login(token).catch(error => {
+  console.error('[Wataszit] Discord login failed:', error);
+  process.exit(1);
+});
