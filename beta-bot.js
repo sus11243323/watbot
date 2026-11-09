@@ -13,15 +13,20 @@ const {
   ChannelType
 } = require('discord.js');
 
-// ENV
-const apiBase = (process.env.WATASZIT_API_URL || '').replace(/\/$/, '');
+const apiBase = (process.env.WATASZIT_API_URL || '').replace(/\/+$/, '');
 const secret = process.env.BETA_REVIEW_SECRET || '';
 const token = process.env.DISCORD_BOT_TOKEN || '';
 const PORT = Number(process.env.PORT) || 10000;
 
-// HTTP SERVER FOR RENDER WEB SERVICE
+if (!token || !secret || !apiBase) {
+  console.error(
+    '[Wataszit] Missing DISCORD_BOT_TOKEN, BETA_REVIEW_SECRET or WATASZIT_API_URL'
+  );
+  process.exit(1);
+}
+
 const server = http.createServer((req, res) => {
-  if (req.url === '/health' || req.url === '/') {
+  if (req.url === '/' || req.url === '/health') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({
       status: 'online',
@@ -38,7 +43,6 @@ server.listen(PORT, '0.0.0.0', () => {
   console.log(`[Wataszit] HTTP server running on port ${PORT}`);
 });
 
-// DISCORD CLIENT
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -46,33 +50,43 @@ const client = new Client({
   ]
 });
 
-// HELPERS
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 
 async function sendServerEvent(event) {
   try {
-    const response = await fetch(`${apiBase}/api/internal/discord/events`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Beta-Review-Secret': secret
-      },
-      body: JSON.stringify({
-        ...event,
-        timestamp: new Date().toISOString()
-      }),
-      signal: AbortSignal.timeout(10000)
-    });
+    const response = await fetch(
+      `${apiBase}/api/internal/discord/events`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Beta-Review-Secret': secret
+        },
+        body: JSON.stringify({
+          ...event,
+          timestamp: new Date().toISOString()
+        }),
+        signal: AbortSignal.timeout(10000)
+      }
+    );
 
     const data = await response.json().catch(() => ({}));
 
     if (!response.ok) {
-      throw new Error(data.message || `HTTP ${response.status}`);
+      throw new Error(
+        data.message || data.error || `HTTP ${response.status}`
+      );
     }
 
-    console.log(`[Wataszit] Event sent: ${event.action}`);
+    console.log(
+      `[Wataszit] Event sent: ${event.action} | ${event.target || 'Unknown'}`
+    );
+
   } catch (error) {
-    console.error('[Wataszit] Could not send event:', error.message);
+    console.error(
+      `[Wataszit] Could not send ${event.action}:`,
+      error.message
+    );
   }
 }
 
@@ -89,6 +103,7 @@ async function getExecutor(guild, type, targetId) {
     );
 
     return entry?.executor?.tag || 'Unknown user';
+
   } catch (error) {
     console.error('[Wataszit] Audit log error:', error.message);
     return 'Unknown user';
@@ -220,17 +235,21 @@ client.on(Events.GuildRoleDelete, async role => {
 client.on(Events.GuildRoleUpdate, async (oldRole, newRole) => {
   const changes = [];
 
-  if (oldRole.name !== newRole.name)
+  if (oldRole.name !== newRole.name) {
     changes.push(`renamed role ${oldRole.name} to ${newRole.name}`);
+  }
 
-  if (oldRole.color !== newRole.color)
+  if (oldRole.color !== newRole.color) {
     changes.push(`changed color of role ${newRole.name}`);
+  }
 
-  if (oldRole.hoist !== newRole.hoist)
+  if (oldRole.hoist !== newRole.hoist) {
     changes.push(`changed display settings of role ${newRole.name}`);
+  }
 
-  if (oldRole.mentionable !== newRole.mentionable)
+  if (oldRole.mentionable !== newRole.mentionable) {
     changes.push(`changed mention settings of role ${newRole.name}`);
+  }
 
   if (!changes.length) return;
 
@@ -311,6 +330,12 @@ client.on(Events.GuildMemberRemove, async member => {
 // READY
 client.once(Events.ClientReady, () => {
   console.log(`[Wataszit] Discord monitor online as ${client.user.tag}`);
+
+  for (const guild of client.guilds.cache.values()) {
+    console.log(
+      `[Wataszit] Monitoring server: ${guild.name} (${guild.id})`
+    );
+  }
 });
 
 // ERROR HANDLING
@@ -318,15 +343,10 @@ client.on(Events.Error, error => {
   console.error('[Wataszit] Discord client error:', error);
 });
 
-// ENV VALIDATION
-if (!token || !secret || !apiBase) {
-  console.error(
-    'Missing DISCORD_BOT_TOKEN, BETA_REVIEW_SECRET or WATASZIT_API_URL'
-  );
-  process.exit(1);
-}
+process.on('unhandledRejection', error => {
+  console.error('[Wataszit] Unhandled rejection:', error);
+});
 
-// LOGIN
 client.login(token).catch(error => {
   console.error('[Wataszit] Discord login failed:', error);
   process.exit(1);
